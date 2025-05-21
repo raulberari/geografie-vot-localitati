@@ -159,16 +159,16 @@
 
       // Function to determine marker color based on Simion percentage
       function getColor(percentage) {
-        if (percentage >= 50) {
-          // Gradient of yellow for 50-100%
-          const intensity = Math.round(255 - (percentage - 50) * 2.55); // Darkens as percentage increases
-          return `rgb(255, ${intensity}, 0)`;
-        } else {
-          // Gradient of blue for 0-50%
-          const intensity = Math.round(percentage * 5.1); // Gets darker blue as percentage approaches 50%
-          return `rgb(0, ${intensity}, 255)`;
-        }
-      }
+    // Ensure percentage is between 0 and 100
+    percentage = Math.max(0, Math.min(100, percentage));
+    
+    // Calculate color components
+    const red = Math.round(percentage * 2.55);       // 0 to 255
+    const green = Math.round(percentage * 2.55);     // 0 to 255
+    const blue = Math.round(255 - percentage * 2.55); // 255 to 0
+    
+    return `rgb(${red}, ${green}, ${blue})`;
+}
 
       // Function to determine marker size based on total votes
       function getMarkerSize(totalVotes, useVoteCount) {
