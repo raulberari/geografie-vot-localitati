@@ -163,9 +163,21 @@
     percentage = Math.max(0, Math.min(100, percentage));
     
     // Calculate color components
-    const red = Math.round(percentage * 2.55);       // 0 to 255
-    const green = Math.round(percentage * 2.55);     // 0 to 255
-    const blue = Math.round(255 - percentage * 2.55); // 255 to 0
+    let red, green, blue;
+    
+    if (percentage <= 50) {
+        // Blue (0,0,255) → Yellow (255,255,0)
+        const ratio = percentage / 50;
+        red = Math.round(255 * ratio);
+        green = Math.round(255 * ratio);
+        blue = Math.round(255 * (1 - ratio));
+    } else {
+        // Yellow (255,255,0) → Orange (255,165,0)
+        const ratio = (percentage - 50) / 50;
+        red = 255;
+        green = Math.round(255 - (255 - 165) * ratio); // 255 → 165
+        blue = 0;
+    }
     
     return `rgb(${red}, ${green}, ${blue})`;
 }
