@@ -34,6 +34,7 @@
         align-items: center;
       }
       #data-input-container {
+        display: flex;
         flex: 1;
       }
       #controls {
@@ -115,8 +116,7 @@
   <body>
     <div id="header">
       <div id="data-input-container">
-        <button id="fetch-data">Fetch Data from GitHub</button>
-        <button id="load-sample">Load Sample Data</button>
+        <button id="fetch-data">Fetch data</button>
         <span id="status">Click "Fetch Data from GitHub" to load the data</span>
       </div>
       <div id="controls">
@@ -338,7 +338,7 @@
 
         document.getElementById(
           "status"
-        ).textContent = `Displaying ${validStations.length} voting stations`;
+        ).textContent = `${validStations.length} voting stations`;
 
         // Add legend if not already present
         if (!document.querySelector(".legend")) {
@@ -347,7 +347,7 @@
 
         // Add info box if not already present
         if (!document.querySelector(".info")) {
-          addInfoBox();
+          // addInfoBox();
         }
       }
 
@@ -403,6 +403,7 @@
               grades[i] +
               (grades[i + 1] ? "&ndash;" + grades[i + 1] + "%<br>" : "+%");
           }
+          div.style.fontSize = "8px";
 
           return div;
         };
@@ -451,23 +452,6 @@ CONSTANTA,1,LICEUL TEORETIC OVIDIUS,44.1765,28.6321,320,680,68.00`;
       document
         .getElementById("fetch-data")
         .addEventListener("click", fetchGistData);
-
-      document
-        .getElementById("load-sample")
-        .addEventListener("click", function () {
-          document.getElementById("loading").style.display = "block";
-          document.getElementById("status").textContent =
-            "Loading sample data...";
-
-          Papa.parse(sampleData, {
-            header: true,
-            skipEmptyLines: true,
-            dynamicTyping: true,
-            complete: function (results) {
-              processData(results);
-            },
-          });
-        });
 
       document
         .getElementById("marker-size")
