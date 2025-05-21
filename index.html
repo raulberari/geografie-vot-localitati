@@ -33,7 +33,7 @@
         justify-content: space-between;
         align-items: center;
       }
-      #file-upload-container {
+      #data-input-container {
         flex: 1;
       }
       #controls {
@@ -90,9 +90,9 @@
   <body>
     <div id="header">
       <div id="data-input-container">
-        <button id="show-input-modal">Open Data Input</button>
+        <button id="fetch-data">Fetch Data from GitHub</button>
         <button id="load-sample">Load Sample Data</button>
-        <span id="status">Click "Open Data Input" to paste your CSV data</span>
+        <span id="status">Click "Fetch Data from GitHub" to load the data</span>
       </div>
       <div id="controls">
         <div>
@@ -109,53 +109,6 @@
       </div>
     </div>
 
-    <!-- Modal for CSV data input -->
-    <div
-      id="input-modal"
-      style="
-        display: none;
-        position: fixed;
-        z-index: 1000;
-        left: 0;
-        top: 0;
-        width: 100%;
-        height: 100%;
-        overflow: auto;
-        background-color: rgba(0, 0, 0, 0.4);
-      "
-    >
-      <div
-        style="
-          background-color: #fefefe;
-          margin: 10% auto;
-          padding: 20px;
-          border: 1px solid #888;
-          width: 80%;
-          max-width: 800px;
-          border-radius: 5px;
-        "
-      >
-        <h3>Paste Your CSV Data</h3>
-        <p>
-          First line should be header:
-          county,station_number,voting_station_name,latitude,longitude,votes_dan,votes_simion,simion_percentage
-        </p>
-        <textarea
-          id="csv-input"
-          style="
-            width: 100%;
-            height: 300px;
-            margin-bottom: 10px;
-            font-family: monospace;
-          "
-        ></textarea>
-        <div style="text-align: right">
-          <button id="process-data">Process Data</button>
-          <button id="close-modal">Cancel</button>
-        </div>
-      </div>
-    </div>
-
     <div id="map"></div>
     <div id="loading" class="loading">Processing data, please wait...</div>
 
@@ -168,6 +121,10 @@
       let markersLayer = null;
       let clusterGroup = null;
       let isClusteringEnabled = true;
+
+      // GitHub Gist URL
+      const GITHUB_GIST_URL =
+        "https://gist.githubusercontent.com/raulberari/b3eacbf3f242d9455b20bf340f376079/raw/";
 
       // Add OpenStreetMap tiles
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -274,20 +231,16 @@
 
           // Add popup with information
           marker.bindPopup(`
-                    <strong>${
-                      station.voting_station_name || "Unknown Station"
-                    }</strong><br>
-                    Station #${station.station_number || "?"}, ${
+            <strong>${
+              station.voting_station_name || "Unknown Station"
+            }</strong><br>
+            Station #${station.station_number || "?"}, ${
             station.county || "Unknown"
           } County<br>
-                    Simion: ${votesSimion} votes (${simionPercentage.toFixed(
-            2
-          )}%)<br>
-                    Dan: ${votesDan} votes (${(100 - simionPercentage).toFixed(
-            2
-          )}%)<br>
-                    Total votes: ${totalVotes}
-                `);
+            Simion: ${votesSimion} votes (${simionPercentage.toFixed(2)}%)<br>
+            Dan: ${votesDan} votes (${(100 - simionPercentage).toFixed(2)}%)<br>
+            Total votes: ${totalVotes}
+          `);
 
           if (isClusteringEnabled) {
             clusterGroup.addLayer(marker);
@@ -332,6 +285,40 @@
         }
       }
 
+      // Function to fetch CSV data from GitHub Gist
+      function fetchGistData() {
+        document.getElementById("loading").style.display = "block";
+        document.getElementById("status").textContent =
+          "Fetching data from GitHub...";
+
+        fetch(GITHUB_GIST_URL)
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error(
+                `Network response was not ok: ${response.status}`
+              );
+            }
+            return response.text();
+          })
+          .then((csvText) => {
+            Papa.parse(csvText, {
+              header: true,
+              skipEmptyLines: true,
+              dynamicTyping: true,
+              complete: function (results) {
+                processData(results);
+              },
+            });
+          })
+          .catch((error) => {
+            document.getElementById("loading").style.display = "none";
+            document.getElementById(
+              "status"
+            ).textContent = `Error fetching data: ${error.message}`;
+            console.error("Error fetching data:", error);
+          });
+      }
+
       // Add a legend
       function addLegend() {
         const legend = L.control({ position: "bottomright" });
@@ -362,10 +349,10 @@
         info.onAdd = function () {
           const div = L.DomUtil.create("div", "info");
           div.innerHTML =
-            "<h4>Voting Station Map</h4>" +
+            "<h4>Romania Voting Station Map</h4>" +
             "<p>Blue markers: Simion support under 50%<br>" +
             "Yellow/Orange markers: Simion support over 50%<br>" +
-            "Marker size can indicate total vote count</p>";
+            "Marker size indicates total vote count</p>";
           return div;
         };
         info.addTo(map);
@@ -395,44 +382,8 @@ CONSTANTA,1,LICEUL TEORETIC OVIDIUS,44.1765,28.6321,320,680,68.00`;
 
       // Event listeners for data input and controls
       document
-        .getElementById("show-input-modal")
-        .addEventListener("click", function () {
-          document.getElementById("input-modal").style.display = "block";
-        });
-
-      document
-        .getElementById("close-modal")
-        .addEventListener("click", function () {
-          document.getElementById("input-modal").style.display = "none";
-        });
-
-      document
-        .getElementById("process-data")
-        .addEventListener("click", function () {
-          const csvText = document.getElementById("csv-input").value;
-          if (csvText.trim() === "") {
-            alert("Please paste CSV data first");
-            return;
-          }
-
-          document.getElementById("input-modal").style.display = "none";
-          document.getElementById("loading").style.display = "block";
-          document.getElementById("status").textContent = "Processing data...";
-
-          Papa.parse(csvText, {
-            header: true,
-            skipEmptyLines: true,
-            dynamicTyping: true,
-            complete: function (results) {
-              processData(results);
-            },
-            error: function (error) {
-              document.getElementById("loading").style.display = "none";
-              document.getElementById("status").textContent =
-                "Error parsing CSV: " + error.message;
-            },
-          });
-        });
+        .getElementById("fetch-data")
+        .addEventListener("click", fetchGistData);
 
       document
         .getElementById("load-sample")
@@ -454,56 +405,20 @@ CONSTANTA,1,LICEUL TEORETIC OVIDIUS,44.1765,28.6321,320,680,68.00`;
       document
         .getElementById("marker-size")
         .addEventListener("change", function () {
-          // Re-process with current data and new marker size
-          const csvText = document.getElementById("csv-input").value;
-          if (csvText.trim() !== "") {
-            document.getElementById("loading").style.display = "block";
-            Papa.parse(csvText, {
-              header: true,
-              skipEmptyLines: true,
-              dynamicTyping: true,
-              complete: processData,
-            });
-          } else {
-            // Use sample data if no data was entered
-            Papa.parse(sampleData, {
-              header: true,
-              skipEmptyLines: true,
-              dynamicTyping: true,
-              complete: processData,
-            });
-          }
+          // Re-process with current data and new marker size setting
+          fetchGistData();
         });
 
-      // test
       document
         .getElementById("clustering-toggle")
         .addEventListener("change", function (e) {
           isClusteringEnabled = e.target.checked;
-
           // Re-process with current data and new clustering setting
-          const csvText = document.getElementById("csv-input").value;
-          if (csvText.trim() !== "") {
-            document.getElementById("loading").style.display = "block";
-            Papa.parse(csvText, {
-              header: true,
-              skipEmptyLines: true,
-              dynamicTyping: true,
-              complete: processData,
-            });
-          } else {
-            // Use sample data if no data was entered
-            Papa.parse(sampleData, {
-              header: true,
-              skipEmptyLines: true,
-              dynamicTyping: true,
-              complete: processData,
-            });
-          }
+          fetchGistData();
         });
 
-      // Initialize with sample data
-      document.getElementById("load-sample").click();
+      // Initialize by fetching data from GitHub Gist
+      fetchGistData();
     </script>
   </body>
 </html>
