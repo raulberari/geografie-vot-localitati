@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voting Station Map</title>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css"
+    />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+      #header {
+        padding: 10px;
+        background-color: #f5f5f5;
+        border-bottom: 1px solid #ddd;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      #file-upload-container {
+        flex: 1;
+      }
+      #controls {
+        display: flex;
+        gap: 10px;
+      }
+      #map {
+        flex: 1;
+        width: 100%;
+      }
+      .legend {
+        background: white;
+        padding: 10px;
+        border-radius: 5px;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+        line-height: 24px;
+        color: #333;
+      }
+      .legend i {
+        width: 18px;
+        height: 18px;
+        float: left;
+        margin-right: 8px;
+        opacity: 0.7;
+      }
+      .info {
+        padding: 10px;
+        background: white;
+        border-radius: 5px;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+      }
+      #status {
+        margin-left: 20px;
+        font-style: italic;
+        color: #666;
+      }
+      .loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(255, 255, 255, 0.8);
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+        z-index: 1000;
+        display: none;
+      }
+      #clustering-toggle {
+        margin-left: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="header">
+      <div id="data-input-container">
+        <button id="show-input-modal">Open Data Input</button>
+        <button id="load-sample">Load Sample Data</button>
+        <span id="status">Click "Open Data Input" to paste your CSV data</span>
+      </div>
+      <div id="controls">
+        <div>
+          <label for="marker-size">Marker Size:</label>
+          <select id="marker-size">
+            <option value="fixed">Fixed</option>
+            <option value="votes" selected>By Vote Count</option>
+          </select>
+        </div>
+        <div>
+          <input type="checkbox" id="clustering-toggle" checked />
+          <label for="clustering-toggle">Enable Clustering</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal for CSV data input -->
+    <div
+      id="input-modal"
+      style="
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0, 0, 0, 0.4);
+      "
+    >
+      <div
+        style="
+          background-color: #fefefe;
+          margin: 10% auto;
+          padding: 20px;
+          border: 1px solid #888;
+          width: 80%;
+          max-width: 800px;
+          border-radius: 5px;
+        "
+      >
+        <h3>Paste Your CSV Data</h3>
+        <p>
+          First line should be header:
+          county,station_number,voting_station_name,latitude,longitude,votes_dan,votes_simion,simion_percentage
+        </p>
+        <textarea
+          id="csv-input"
+          style="
+            width: 100%;
+            height: 300px;
+            margin-bottom: 10px;
+            font-family: monospace;
+          "
+        ></textarea>
+        <div style="text-align: right">
+          <button id="process-data">Process Data</button>
+          <button id="close-modal">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="map"></div>
+    <div id="loading" class="loading">Processing data, please wait...</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script>
+      // Initialize the map centered on Romania
+      const map = L.map("map").setView([45.9443, 25.0094], 7);
+      let markersLayer = null;
+      let clusterGroup = null;
+      let isClusteringEnabled = true;
+
+      // Add OpenStreetMap tiles
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }).addTo(map);
+
+      // Function to determine marker color based on Simion percentage
+      function getColor(percentage) {
+        if (percentage >= 50) {
+          // Gradient of yellow for 50-100%
+          const intensity = Math.round(255 - (percentage - 50) * 2.55); // Darkens as percentage increases
+          return `rgb(255, ${intensity}, 0)`;
+        } else {
+          // Gradient of blue for 0-50%
+          const intensity = Math.round(percentage * 5.1); // Gets darker blue as percentage approaches 50%
+          return `rgb(0, ${intensity}, 255)`;
+        }
+      }
+
+      // Function to determine marker size based on total votes
+      function getMarkerSize(totalVotes, useVoteCount) {
+        if (useVoteCount) {
+          // Calculate size based on votes, with limits
+          return Math.max(5, Math.min(15, 5 + totalVotes / 500));
+        } else {
+          // Fixed size
+          return 8;
+        }
+      }
+
+      // Function to create and add markers based on the CSV data
+      function processData(results) {
+        document.getElementById("loading").style.display = "none";
+
+        // Remove any existing markers layer
+        if (markersLayer) {
+          map.removeLayer(markersLayer);
+        }
+
+        if (clusterGroup) {
+          map.removeLayer(clusterGroup);
+        }
+
+        const stations = results.data;
+
+        // Create a new cluster group if clustering is enabled
+        if (isClusteringEnabled) {
+          clusterGroup = L.markerClusterGroup({
+            maxClusterRadius: 30,
+            disableClusteringAtZoom: 13,
+          });
+        }
+
+        // Use fixed or vote-based marker size
+        const useVoteCount =
+          document.getElementById("marker-size").value === "votes";
+
+        // Filter out entries with missing or invalid coordinates
+        const validStations = stations.filter(
+          (station) =>
+            station.latitude &&
+            station.longitude &&
+            !isNaN(station.latitude) &&
+            !isNaN(station.longitude) &&
+            station.latitude > 0 &&
+            station.longitude > 0
+        );
+
+        if (validStations.length === 0) {
+          document.getElementById("status").textContent =
+            "No valid data found. Please check your CSV format.";
+          return;
+        }
+
+        // Create markers for valid stations
+        const markers = [];
+
+        validStations.forEach((station) => {
+          // Ensure numerical values
+          const votesDan = Number(station.votes_dan) || 0;
+          const votesSimion = Number(station.votes_simion) || 0;
+          const totalVotes = votesDan + votesSimion;
+
+          // Get Simion percentage, handling possible errors
+          let simionPercentage;
+          if (station.simion_percentage) {
+            simionPercentage = parseFloat(station.simion_percentage);
+          } else if (totalVotes > 0) {
+            simionPercentage = (votesSimion / totalVotes) * 100;
+          } else {
+            simionPercentage = 0;
+          }
+
+          // Create marker
+          const marker = L.circleMarker([station.latitude, station.longitude], {
+            radius: getMarkerSize(totalVotes, useVoteCount),
+            fillColor: getColor(simionPercentage),
+            color: "#000",
+            weight: 1,
+            opacity: 1,
+            fillOpacity: 0.8,
+          });
+
+          // Add popup with information
+          marker.bindPopup(`
+                    <strong>${
+                      station.voting_station_name || "Unknown Station"
+                    }</strong><br>
+                    Station #${station.station_number || "?"}, ${
+            station.county || "Unknown"
+          } County<br>
+                    Simion: ${votesSimion} votes (${simionPercentage.toFixed(
+            2
+          )}%)<br>
+                    Dan: ${votesDan} votes (${(100 - simionPercentage).toFixed(
+            2
+          )}%)<br>
+                    Total votes: ${totalVotes}
+                `);
+
+          if (isClusteringEnabled) {
+            clusterGroup.addLayer(marker);
+          } else {
+            markers.push(marker);
+          }
+        });
+
+        if (isClusteringEnabled) {
+          map.addLayer(clusterGroup);
+        } else {
+          markersLayer = L.layerGroup(markers).addTo(map);
+        }
+
+        // Adjust map view to fit all markers
+        try {
+          const lats = validStations.map((s) => parseFloat(s.latitude));
+          const lngs = validStations.map((s) => parseFloat(s.longitude));
+          const bounds = [
+            [Math.min(...lats), Math.min(...lngs)],
+            [Math.max(...lats), Math.max(...lngs)],
+          ];
+          map.fitBounds(bounds);
+        } catch (e) {
+          console.error("Error setting map bounds:", e);
+          // Fallback to default view of Romania
+          map.setView([45.9443, 25.0094], 7);
+        }
+
+        document.getElementById(
+          "status"
+        ).textContent = `Displaying ${validStations.length} voting stations`;
+
+        // Add legend if not already present
+        if (!document.querySelector(".legend")) {
+          addLegend();
+        }
+
+        // Add info box if not already present
+        if (!document.querySelector(".info")) {
+          addInfoBox();
+        }
+      }
+
+      // Add a legend
+      function addLegend() {
+        const legend = L.control({ position: "bottomright" });
+        legend.onAdd = function () {
+          const div = L.DomUtil.create("div", "legend");
+          const grades = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
+
+          div.innerHTML = "<h4>Simion Support %</h4>";
+
+          // Loop through our percentage intervals and generate a label with a colored square for each interval
+          for (let i = 0; i < grades.length; i++) {
+            div.innerHTML +=
+              '<i style="background:' +
+              getColor(grades[i]) +
+              '"></i> ' +
+              grades[i] +
+              (grades[i + 1] ? "&ndash;" + grades[i + 1] + "%<br>" : "+%");
+          }
+
+          return div;
+        };
+        legend.addTo(map);
+      }
+
+      // Add an info box
+      function addInfoBox() {
+        const info = L.control({ position: "topright" });
+        info.onAdd = function () {
+          const div = L.DomUtil.create("div", "info");
+          div.innerHTML =
+            "<h4>Voting Station Map</h4>" +
+            "<p>Blue markers: Simion support under 50%<br>" +
+            "Yellow/Orange markers: Simion support over 50%<br>" +
+            "Marker size can indicate total vote count</p>";
+          return div;
+        };
+        info.addTo(map);
+      }
+
+      // Sample data for quick testing
+      const sampleData = `county,station_number,voting_station_name,latitude,longitude,votes_dan,votes_simion,simion_percentage
+ALBA,1,CENTRUL DE ZI PENTRU PERSOANE VÂRSTNICE,46.073244001447776,23.58794541089172,771,356,31.59
+ALBA,2,ŞCOALA GIMNAZIALĂ „VASILE GOLDIŞ",46.07368733046567,23.58318111942559,476,214,31.01
+ALBA,3,ŞCOALA GIMNAZIALĂ „VASILE GOLDIŞ",46.07368733046567,23.58318111942559,520,229,30.57
+ALBA,4,ŞCOALA GIMNAZIALĂ „AVRAM IANCU",46.0622295177298,23.57873745375245,605,265,30.46
+ALBA,5,ŞCOALA GIMNAZIALĂ „AVRAM IANCU",46.0622295177298,23.57873745375245,385,253,39.66
+ALBA,6,CASA DE CULTURĂ A STUDENŢILOR,46.06953740000005,23.582896599999973,352,138,28.16
+ALBA,7,COLEGIUL ECONOMIC „DIONISIE POP MARŢIAN",46.06579647538501,23.57761136433973,852,338,28.4
+ALBA,8,COLEGIUL NAŢIONAL „HOREA CLOŞCA ŞI CRIŞAN",46.06684031450214,23.563723249248817,473,176,27.12
+ALBA,9,COLEGIUL NAŢIONAL „HOREA CLOŞCA ŞI CRIŞAN",46.06684031450214,23.563723249248817,975,382,28.15
+ALBA,10,COLEGIUL NAŢIONAL „HOREA CLOŞCA ŞI CRIŞAN",46.06684031450214,23.563723249248817,560,297,34.66
+ALBA,11,COLEGIUL NAŢIONAL „HOREA CLOŞCA ŞI CRIŞAN",46.06684031450214,23.563723249248817,332,238,41.75
+ALBA,12,COLEGIUL TEHNIC „APULUM",46.06579231436896,23.561360957017005,304,247,44.83
+ALBA,13,COLEGIUL TEHNIC „APULUM",46.06578124878288,23.561357767315208,310,172,35.68
+ALBA,14,COLEGIUL TEHNIC „APULUM",46.06577018319463,23.56136414671872,337,157,31.78
+ARGES,1,ŞCOALA GIMNAZIALĂ MATEI BASARAB,44.86084810000005,24.87461370000005,521,585,52.88
+BACAU,1,ŞCOALA GIMNAZIALĂ MIHAI EMINESCU,46.571,26.896,350,650,65.00
+BIHOR,1,COLEGIUL NAȚIONAL EMANUIL GOJDU,47.0591,21.9335,842,158,15.80
+CLUJ,1,UNIVERSITATEA TEHNICĂ,46.7712,23.6236,910,90,9.00
+CONSTANTA,1,LICEUL TEORETIC OVIDIUS,44.1765,28.6321,320,680,68.00`;
+
+      // Event listeners for data input and controls
+      document
+        .getElementById("show-input-modal")
+        .addEventListener("click", function () {
+          document.getElementById("input-modal").style.display = "block";
+        });
+
+      document
+        .getElementById("close-modal")
+        .addEventListener("click", function () {
+          document.getElementById("input-modal").style.display = "none";
+        });
+
+      document
+        .getElementById("process-data")
+        .addEventListener("click", function () {
+          const csvText = document.getElementById("csv-input").value;
+          if (csvText.trim() === "") {
+            alert("Please paste CSV data first");
+            return;
+          }
+
+          document.getElementById("input-modal").style.display = "none";
+          document.getElementById("loading").style.display = "block";
+          document.getElementById("status").textContent = "Processing data...";
+
+          Papa.parse(csvText, {
+            header: true,
+            skipEmptyLines: true,
+            dynamicTyping: true,
+            complete: function (results) {
+              processData(results);
+            },
+            error: function (error) {
+              document.getElementById("loading").style.display = "none";
+              document.getElementById("status").textContent =
+                "Error parsing CSV: " + error.message;
+            },
+          });
+        });
+
+      document
+        .getElementById("load-sample")
+        .addEventListener("click", function () {
+          document.getElementById("loading").style.display = "block";
+          document.getElementById("status").textContent =
+            "Loading sample data...";
+
+          Papa.parse(sampleData, {
+            header: true,
+            skipEmptyLines: true,
+            dynamicTyping: true,
+            complete: function (results) {
+              processData(results);
+            },
+          });
+        });
+
+      document
+        .getElementById("marker-size")
+        .addEventListener("change", function () {
+          // Re-process with current data and new marker size
+          const csvText = document.getElementById("csv-input").value;
+          if (csvText.trim() !== "") {
+            document.getElementById("loading").style.display = "block";
+            Papa.parse(csvText, {
+              header: true,
+              skipEmptyLines: true,
+              dynamicTyping: true,
+              complete: processData,
+            });
+          } else {
+            // Use sample data if no data was entered
+            Papa.parse(sampleData, {
+              header: true,
+              skipEmptyLines: true,
+              dynamicTyping: true,
+              complete: processData,
+            });
+          }
+        });
+
+      document
+        .getElementById("clustering-toggle")
+        .addEventListener("change", function (e) {
+          isClusteringEnabled = e.target.checked;
+
+          // Re-process with current data and new clustering setting
+          const csvText = document.getElementById("csv-input").value;
+          if (csvText.trim() !== "") {
+            document.getElementById("loading").style.display = "block";
+            Papa.parse(csvText, {
+              header: true,
+              skipEmptyLines: true,
+              dynamicTyping: true,
+              complete: processData,
+            });
+          } else {
+            // Use sample data if no data was entered
+            Papa.parse(sampleData, {
+              header: true,
+              skipEmptyLines: true,
+              dynamicTyping: true,
+              complete: processData,
+            });
+          }
+        });
+
+      // Initialize with sample data
+      document.getElementById("load-sample").click();
+    </script>
+  </body>
+</html>
