@@ -161,10 +161,21 @@
       function getColor(percentage) {
     percentage = Math.max(0, Math.min(100, percentage));
     
-    // Dark blue (0,0,180) → Light blue (200,230,255)
-    const red = Math.round(200 * (percentage / 100));
-    const green = Math.round(230 * (percentage / 100));
-    const blue = 180 + Math.round(75 * (percentage / 100)); // 180 → 255
+    let red, green, blue;
+    
+    if (percentage <= 50) {
+        // Blue (0,0,255) → White (255,255,255)
+        const ratio = percentage / 50;
+        red = Math.round(255 * ratio);
+        green = Math.round(255 * ratio);
+        blue = 255; // Keep blue at max while fading in red/green
+    } else {
+        // White (255,255,255) → Yellow (255,255,0)
+        const ratio = (percentage - 50) / 50;
+        red = 255;
+        green = 255;
+        blue = Math.round(255 * (1 - ratio)); // Fade out blue
+    }
     
     return `rgb(${red}, ${green}, ${blue})`;
 }
