@@ -116,7 +116,7 @@
   <body>
     <div id="header">
       <div id="data-input-container">
-        <button id="fetch-data">Fetch data</button>
+        <a href="index.html">See relative</a>
         <span id="status">Click "Fetch Data from GitHub" to load the data</span>
       </div>
       <div id="controls">
@@ -459,10 +459,6 @@ CLUJ,1,UNIVERSITATEA TEHNICĂ,46.7712,23.6236,910,90,9.00
 CONSTANTA,1,LICEUL TEORETIC OVIDIUS,44.1765,28.6321,320,680,68.00`;
 
       // Event listeners for data input and controls
-      document
-        .getElementById("fetch-data")
-        .addEventListener("click", fetchGistData);
-
       document
         .getElementById("marker-size")
         .addEventListener("change", function () {
