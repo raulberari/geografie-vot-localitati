@@ -159,7 +159,6 @@
         attribution:
           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }).addTo(map);
-
       function getColor(diff) {
         diff = Math.max(-50, Math.min(60, diff)); // Clamp between -50 and 60
 
@@ -172,19 +171,29 @@
           green = Math.round(216 * ratio);
           blue = Math.round(139 + (230 - 139) * ratio);
         } else {
-          // Positive values (0 to 60): light yellow (255,255,153) → yellow (255,255,0) → orange (255,165,0)
-          const ratio = diff / 60; // 0 to 1
-          if (ratio < 0.5) {
-            // First half: light yellow to yellow
-            const subRatio = ratio * 2;
+          // Positive values (0 to 60):
+          // 0-30: light yellow (255,255,153) → yellow (255,255,0) → orange (255,165,0)
+          // 30-60: orange (255,165,0) → red (255,0,0)
+          const ratio = diff / 60;
+
+          if (diff <= 30) {
+            // 0-30 range
+            const subRatio = diff / 30;
             red = 255;
             green = 255;
-            blue = Math.round(153 * (1 - subRatio));
+            blue = Math.round(153 * (1 - subRatio * 0.5)); // Only go halfway to yellow first
+
+            if (subRatio > 0.5) {
+              // Second half of 0-30: transition to orange
+              const orangeRatio = (subRatio - 0.5) * 2;
+              green = Math.round(255 - (255 - 165) * orangeRatio);
+              blue = 0;
+            }
           } else {
-            // Second half: yellow to orange
-            const subRatio = (ratio - 0.5) * 2;
+            // 30-60 range: orange to red
+            const subRatio = (diff - 30) / 30;
             red = 255;
-            green = Math.round(255 - (255 - 165) * subRatio);
+            green = Math.round(165 - 165 * subRatio);
             blue = 0;
           }
         }
