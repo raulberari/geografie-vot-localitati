@@ -203,6 +203,62 @@
         }
       }
 
+      // Function to nudge coordinates for stations at the same location
+      function nudgeCoordinates(stations) {
+        // Group stations by their coordinates
+        const locationGroups = {};
+
+        stations.forEach((station, index) => {
+          // Ensure coordinates are properly parsed
+          const lat = parseFloat(station.latitude);
+          const lng = parseFloat(station.longitude);
+
+          if (isNaN(lat) || isNaN(lng)) {
+            console.warn("Invalid coordinates for station:", station);
+            return;
+          }
+
+          const key = `${lat},${lng}`;
+          if (!locationGroups[key]) {
+            locationGroups[key] = [];
+          }
+          locationGroups[key].push({ station, index, lat, lng });
+        });
+
+        // Apply nudging to groups with multiple stations
+        Object.values(locationGroups).forEach((group) => {
+          if (group.length > 1) {
+            // Calculate nudge radius based on zoom level (smaller nudge for higher zoom)
+            const baseNudge = 0.0015; // Base nudge distance in degrees
+
+            group.forEach((item, i) => {
+              if (i === 0) {
+                // Keep first station at original position
+                item.station.nudgedLatitude = item.lat;
+                item.station.nudgedLongitude = item.lng;
+              } else {
+                // Create a small circular offset for each additional station
+                const angle = (2 * Math.PI * i) / group.length;
+                const distance = baseNudge * (0.5 + (0.5 * i) / group.length); // Vary distance slightly
+
+                const latOffset = Math.sin(angle) * distance;
+                const lngOffset = Math.cos(angle) * distance;
+
+                // Apply nudge to the station
+                item.station.nudgedLatitude = item.lat + latOffset;
+                item.station.nudgedLongitude = item.lng + lngOffset;
+              }
+            });
+          } else {
+            // Single station, no nudging needed
+            group[0].station.nudgedLatitude = group[0].lat;
+            group[0].station.nudgedLongitude = group[0].lng;
+          }
+        });
+
+        return stations;
+      }
+
       // Function to create and add markers based on the CSV data
       function processData(results) {
         document.getElementById("loading").style.display = "none";
@@ -284,10 +340,13 @@
           return;
         }
 
+        // Apply coordinate nudging for stations at the same location
+        const nudgedStations = nudgeCoordinates(validStations);
+
         // Create markers for valid stations
         const markers = [];
 
-        validStations.forEach((station) => {
+        nudgedStations.forEach((station) => {
           // Ensure numerical values
           const votesDan = Number(station.votes_dan) || 0;
           const votesSimion = Number(station.votes_simion) || 0;
@@ -313,8 +372,24 @@
               simionPercentage - (station.uat_simion_avg_percentage || 0);
           }
 
+          // Use nudged coordinates if they exist, otherwise fall back to original
+          const lat =
+            station.nudgedLatitude !== undefined
+              ? station.nudgedLatitude
+              : parseFloat(station.latitude);
+          const lng =
+            station.nudgedLongitude !== undefined
+              ? station.nudgedLongitude
+              : parseFloat(station.longitude);
+
+          // Skip if coordinates are still invalid
+          if (isNaN(lat) || isNaN(lng)) {
+            console.warn("Skipping station with invalid coordinates:", station);
+            return;
+          }
+
           // Create marker
-          const marker = L.circleMarker([station.latitude, station.longitude], {
+          const marker = L.circleMarker([lat, lng], {
             radius: getMarkerSize(totalVotes, useVoteCount),
             fillColor: getColor(simionVsUatDiff),
             color: "#000",
@@ -358,7 +433,7 @@
           markersLayer = L.layerGroup(markers).addTo(map);
         }
 
-        // Adjust map view to fit all markers
+        // Adjust map view to fit all markers using original coordinates
         try {
           const lats = validStations.map((s) => parseFloat(s.latitude));
           const lngs = validStations.map((s) => parseFloat(s.longitude));
