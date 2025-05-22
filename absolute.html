@@ -37,9 +37,6 @@
         display: flex;
         flex: 1;
       }
-      #data-input-container a {
-        margin: 0 8px;
-      }
       #controls {
         display: flex;
         gap: 10px;
@@ -119,7 +116,7 @@
   <body>
     <div id="header">
       <div id="data-input-container">
-        <a href="absolute.html">Another viz</a>
+        <button id="fetch-data">Fetch data</button>
         <span id="status">Click "Fetch Data from GitHub" to load the data</span>
       </div>
       <div id="controls">
@@ -160,33 +157,24 @@
           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       }).addTo(map);
 
-      function getColor(diff) {
-        diff = Math.max(-50, Math.min(60, diff)); // Clamp between -50 and 60
+      // Function to determine marker color based on Simion percentage
+      function getColor(percentage) {
+        percentage = Math.max(0, Math.min(100, percentage));
 
         let red, green, blue;
 
-        if (diff < 0) {
-          // Negative values (-50 to 0): dark blue (0,0,139) → light blue (173,216,230)
-          const ratio = (diff + 50) / 50; // Maps -50→0 to 0→1
+        if (percentage < 50) {
+          // Dark blue (0,0,139) → Light blue (173,216,230)
+          const ratio = percentage / 50;
           red = Math.round(173 * ratio);
           green = Math.round(216 * ratio);
-          blue = Math.round(139 + (230 - 139) * ratio);
+          blue = 139 + Math.round(91 * ratio); // 139 → 230
         } else {
-          // Positive values (0 to 60): light yellow (255,255,153) → yellow (255,255,0) → orange (255,165,0)
-          const ratio = diff / 60; // 0 to 1
-          if (ratio < 0.5) {
-            // First half: light yellow to yellow
-            const subRatio = ratio * 2;
-            red = 255;
-            green = 255;
-            blue = Math.round(153 * (1 - subRatio));
-          } else {
-            // Second half: yellow to orange
-            const subRatio = (ratio - 0.5) * 2;
-            red = 255;
-            green = Math.round(255 - (255 - 165) * subRatio);
-            blue = 0;
-          }
+          // Light yellow (255,255,153) → Orange (255,165,0)
+          const ratio = (percentage - 50) / 50;
+          red = 255;
+          green = 255 - Math.round(90 * ratio); // 255 → 165
+          blue = 153 - Math.round(153 * ratio); // 153 → 0
         }
 
         return `rgb(${red}, ${green}, ${blue})`;
@@ -227,25 +215,25 @@
               // Get all markers in this cluster
               const markers = cluster.getAllChildMarkers();
 
-              // Calculate average simion vs UAT difference across all markers in cluster
-              let totalSimionVsUatDiff = 0;
+              // Calculate average simion percentage across all markers in cluster
+              let totalSimionPercentage = 0;
               let totalVotes = 0;
 
               markers.forEach((marker) => {
                 // Get the data directly from stored originalData
                 const markerData = marker.options.originalData;
-                if (markerData && markerData.simionVsUatDiff !== undefined) {
+                if (markerData && markerData.simionPercentage !== undefined) {
                   const weight = markerData.totalVotes || 1;
-                  totalSimionVsUatDiff += markerData.simionVsUatDiff * weight;
+                  totalSimionPercentage += markerData.simionPercentage * weight;
                   totalVotes += weight;
                 }
               });
 
               // Calculate the weighted average
-              const avgSimionVsUatDiff = totalSimionVsUatDiff / totalVotes;
+              const avgSimionPercentage = totalSimionPercentage / totalVotes;
 
-              // Get color based on average difference
-              const clusterColor = getColor(avgSimionVsUatDiff);
+              // Get color based on average percentage
+              const clusterColor = getColor(avgSimionPercentage);
               const count = cluster.getChildCount();
 
               // Create custom icon with the dominant color
@@ -303,26 +291,16 @@
             simionPercentage = 0;
           }
 
-          // Get the difference value
-          let simionVsUatDiff;
-          if (station.simion_vs_uat_diff) {
-            simionVsUatDiff = parseFloat(station.simion_vs_uat_diff);
-          } else {
-            // Fallback calculation if the column is missing
-            simionVsUatDiff =
-              simionPercentage - (station.uat_simion_avg_percentage || 0);
-          }
-
           // Create marker
           const marker = L.circleMarker([station.latitude, station.longitude], {
             radius: getMarkerSize(totalVotes, useVoteCount),
-            fillColor: getColor(simionVsUatDiff),
+            fillColor: getColor(simionPercentage),
             color: "#000",
             weight: 1,
             opacity: 1,
             fillOpacity: 0.8,
             originalData: {
-              simionVsUatDiff: simionVsUatDiff,
+              simionPercentage: simionPercentage,
               totalVotes: totalVotes,
             },
           });
@@ -337,11 +315,7 @@
           } County<br>
             Simion: ${votesSimion} votes (${simionPercentage.toFixed(2)}%)<br>
             Dan: ${votesDan} votes (${(100 - simionPercentage).toFixed(2)}%)<br>
-            Total votes: ${totalVotes}<br>
-            UAT Average: ${(station.uat_simion_avg_percentage || 0).toFixed(
-              2
-            )}%<br>
-            Difference: ${simionVsUatDiff.toFixed(2)}%
+            Total votes: ${totalVotes}
           `);
 
           if (isClusteringEnabled) {
@@ -426,39 +400,21 @@
         const legend = L.control({ position: "bottomright" });
         legend.onAdd = function () {
           const div = L.DomUtil.create("div", "legend");
-          const negativeGrades = [-50, -40, -30, -20, -10, 0];
-          const positiveGrades = [0, 10, 20, 30, 40, 50, 60];
+          const grades = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
 
-          div.innerHTML = "<h4>Simion vs UAT Difference</h4>";
-          div.innerHTML += "<h5>Below UAT average</h5>";
+          div.innerHTML = "<h4>Simion Support %</h4>";
 
-          // Negative differences (dark blue to light blue)
-          for (let i = 0; i < negativeGrades.length - 1; i++) {
+          // Loop through our percentage intervals and generate a label with a colored square for each interval
+          for (let i = 0; i < grades.length; i++) {
             div.innerHTML +=
               '<i style="background:' +
-              getColor(negativeGrades[i]) +
+              getColor(grades[i]) +
               '"></i> ' +
-              negativeGrades[i] +
-              (negativeGrades[i + 1]
-                ? "&ndash;" + negativeGrades[i + 1] + "%<br>"
-                : "%");
+              grades[i] +
+              (grades[i + 1] ? "&ndash;" + grades[i + 1] + "%<br>" : "+%");
           }
-
-          div.innerHTML += "<h5>Above UAT average</h5>";
-
-          // Positive differences (light yellow to orange)
-          for (let i = 0; i < positiveGrades.length - 1; i++) {
-            div.innerHTML +=
-              '<i style="background:' +
-              getColor(positiveGrades[i]) +
-              '"></i> ' +
-              positiveGrades[i] +
-              (positiveGrades[i + 1]
-                ? "&ndash;" + positiveGrades[i + 1] + "%<br>"
-                : "+%");
-          }
-
           div.style.fontSize = "8px";
+
           return div;
         };
         legend.addTo(map);
@@ -481,18 +437,31 @@
       }
 
       // Sample data for quick testing
-      const sampleData = `county,uat_name,station_number,voting_station_name,latitude,longitude,votes_dan,votes_simion,simion_percentage,uat_simion_avg_percentage,simion_vs_uat_diff
-ALBA,MUNICIPIUL ALBA IULIA,1,CENTRUL DE ZI PENTRU PERSOANE VÂRSTNICE,46.073244001447776,23.58794541089172,771,356,31.59,38.01,-6.42
-ALBA,MUNICIPIUL ALBA IULIA,2,ŞCOALA GIMNAZIALĂ „VASILE GOLDIŞ",46.07368733046567,23.58318111942559,476,214,31.01,38.01,-7.0
-ALBA,MUNICIPIUL ALBA IULIA,3,ŞCOALA GIMNAZIALĂ „VASILE GOLDIŞ",46.07368733046567,23.58318111942559,520,229,30.57,38.01,-7.44
-ALBA,MUNICIPIUL ALBA IULIA,4,ŞCOALA GIMNAZIALĂ „AVRAM IANCU",46.0622295177298,23.57873745375245,605,265,30.46,38.01,-7.55
-ALBA,MUNICIPIUL ALBA IULIA,5,ŞCOALA GIMNAZIALĂ „AVRAM IANCU",46.0622295177298,23.57873745375245,385,253,39.66,38.01,1.65
-ALBA,MUNICIPIUL ALBA IULIA,6,CASA DE CULTURĂ A STUDENŢILOR,46.06953740000005,23.582896599999973,352,138,28.16,38.01,-9.85`;
+      const sampleData = `county,station_number,voting_station_name,latitude,longitude,votes_dan,votes_simion,simion_percentage
+ALBA,1,CENTRUL DE ZI PENTRU PERSOANE VÂRSTNICE,46.073244001447776,23.58794541089172,771,356,31.59
+ALBA,2,ŞCOALA GIMNAZIALĂ „VASILE GOLDIŞ",46.07368733046567,23.58318111942559,476,214,31.01
+ALBA,3,ŞCOALA GIMNAZIALĂ „VASILE GOLDIŞ",46.07368733046567,23.58318111942559,520,229,30.57
+ALBA,4,ŞCOALA GIMNAZIALĂ „AVRAM IANCU",46.0622295177298,23.57873745375245,605,265,30.46
+ALBA,5,ŞCOALA GIMNAZIALĂ „AVRAM IANCU",46.0622295177298,23.57873745375245,385,253,39.66
+ALBA,6,CASA DE CULTURĂ A STUDENŢILOR,46.06953740000005,23.582896599999973,352,138,28.16
+ALBA,7,COLEGIUL ECONOMIC „DIONISIE POP MARŢIAN",46.06579647538501,23.57761136433973,852,338,28.4
+ALBA,8,COLEGIUL NAŢIONAL „HOREA CLOŞCA ŞI CRIŞAN",46.06684031450214,23.563723249248817,473,176,27.12
+ALBA,9,COLEGIUL NAŢIONAL „HOREA CLOŞCA ŞI CRIŞAN",46.06684031450214,23.563723249248817,975,382,28.15
+ALBA,10,COLEGIUL NAŢIONAL „HOREA CLOŞCA ŞI CRIŞAN",46.06684031450214,23.563723249248817,560,297,34.66
+ALBA,11,COLEGIUL NAŢIONAL „HOREA CLOŞCA ŞI CRIŞAN",46.06684031450214,23.563723249248817,332,238,41.75
+ALBA,12,COLEGIUL TEHNIC „APULUM",46.06579231436896,23.561360957017005,304,247,44.83
+ALBA,13,COLEGIUL TEHNIC „APULUM",46.06578124878288,23.561357767315208,310,172,35.68
+ALBA,14,COLEGIUL TEHNIC „APULUM",46.06577018319463,23.56136414671872,337,157,31.78
+ARGES,1,ŞCOALA GIMNAZIALĂ MATEI BASARAB,44.86084810000005,24.87461370000005,521,585,52.88
+BACAU,1,ŞCOALA GIMNAZIALĂ MIHAI EMINESCU,46.571,26.896,350,650,65.00
+BIHOR,1,COLEGIUL NAȚIONAL EMANUIL GOJDU,47.0591,21.9335,842,158,15.80
+CLUJ,1,UNIVERSITATEA TEHNICĂ,46.7712,23.6236,910,90,9.00
+CONSTANTA,1,LICEUL TEORETIC OVIDIUS,44.1765,28.6321,320,680,68.00`;
 
       // Event listeners for data input and controls
-      // document
-      //   .getElementById("fetch-data")
-      //   .addEventListener("click", fetchGistData);
+      document
+        .getElementById("fetch-data")
+        .addEventListener("click", fetchGistData);
 
       document
         .getElementById("marker-size")

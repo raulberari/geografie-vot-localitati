@@ -34,7 +34,7 @@ def merge_voting_data(voting_data_file, station_locations_file, output_file):
     })
     
     # Extract only needed columns from voting data
-    voting_data_processed = voting_data_processed[['county', 'station_number', 'voting_station_name', 'votes_simion', 'votes_dan']]
+    voting_data_processed = voting_data_processed[['county', 'station_number', 'voting_station_name', 'uat_name', 'votes_simion', 'votes_dan']]
     
     # Process station locations data
     # Since the formats of the station_number might be different, convert both to string
@@ -98,107 +98,50 @@ def merge_voting_data(voting_data_file, station_locations_file, output_file):
     missing_locations = merged_data[merged_data['latitude'].isna()]
     print(f"\n{len(missing_locations)} stations missing location data after merging on station_number AND county")
     
-    # if len(missing_locations) > 0:
-    #     print("Trying to merge remaining stations based on station_number only...")
-    #     # For records with missing locations, try to merge just on station_number
-    #     stations_with_missing_loc = missing_locations['station_number'].unique()
-        
-    #     # Create a dataframe with only the missing locations
-    #     missing_data = voting_data_processed[voting_data_processed['station_number'].isin(stations_with_missing_loc)]
-        
-    #     # Merge these based on station_number only
-    #     secondary_merge = pd.merge(
-    #         missing_data,
-    #         station_locations_processed,
-    #         on='station_number',
-    #         how='inner'  # Only keep matches
-    #     )
-        
-    #     # Create a dictionary mapping station numbers to their location data
-    #     location_dict = {}
-    #     for index, row in secondary_merge.iterrows():
-    #         # Only add entries with valid latitude/longitude
-    #         if not pd.isna(row['latitude']):
-    #             # Use station_number as key, store lat/long as values
-    #             location_dict[row['station_number']] = (row['latitude'], row['longitude'])
-        
-    #     # Update missing locations in the original merged dataframe
-    #     filled_count = 0
-    #     for idx, row in merged_data.iterrows():
-    #         if pd.isna(row['latitude']) and row['station_number'] in location_dict:
-    #             merged_data.loc[idx, 'latitude'] = location_dict[row['station_number']][0]
-    #             merged_data.loc[idx, 'longitude'] = location_dict[row['station_number']][1]
-    #             filled_count += 1
-        
-    #     print(f"Successfully filled location data for {filled_count} stations from secondary merge")
-        
-    #     # Check again for missing locations
-    #     still_missing = merged_data[merged_data['latitude'].isna()]
-    #     print(f"After secondary merge: {len(still_missing)} stations still missing location data")
-        
-    #     # Try a third approach - use numeric part of station_number for matching
-    #     # This helps when formats differ (e.g., '1' vs '001')
-    #     if len(still_missing) > 0:
-    #         print("Attempting third matching approach with numeric station numbers...")
-            
-    #         # Create numeric versions of station numbers
-    #         def extract_numeric(val):
-    #             try:
-    #                 # Extract digits only from the string
-    #                 return int(''.join(filter(str.isdigit, str(val))))
-    #             except:
-    #                 return None
-            
-    #         # Add numeric versions of station numbers to both dataframes
-    #         voting_data_processed['station_num'] = voting_data_processed['station_number'].apply(extract_numeric)
-    #         station_locations_processed['station_num'] = station_locations_processed['station_number'].apply(extract_numeric)
-            
-    #         # Get stations still missing location data
-    #         still_missing_stations = still_missing['station_number'].unique()
-    #         missing_data_second = voting_data_processed[voting_data_processed['station_number'].isin(still_missing_stations)]
-            
-    #         # Create a mapping from numeric station IDs to location data
-    #         numeric_location_dict = {}
-    #         for index, row in station_locations_processed.iterrows():
-    #             if not pd.isna(row['station_num']) and not pd.isna(row['latitude']):
-    #                 # Group by county and numeric station ID
-    #                 key = (row['county'], row['station_num'])
-    #                 numeric_location_dict[key] = (row['latitude'], row['longitude'])
-            
-    #         # Update still missing locations using numeric matching
-    #         third_filled_count = 0
-    #         for idx, row in merged_data.iterrows():
-    #             if pd.isna(row['latitude']):
-    #                 # Try to find a match using numeric station number and county
-    #                 station_num = extract_numeric(row['station_number'])
-    #                 if station_num is not None:
-    #                     key = (row['county'], station_num)
-    #                     if key in numeric_location_dict:
-    #                         merged_data.loc[idx, 'latitude'] = numeric_location_dict[key][0]
-    #                         merged_data.loc[idx, 'longitude'] = numeric_location_dict[key][1]
-    #                         third_filled_count += 1
-            
-    #         print(f"Successfully filled location data for {third_filled_count} additional stations using numeric matching")
-            
-    #         # Final check for missing locations
-    #         final_missing = merged_data[merged_data['latitude'].isna()]
-    #         print(f"Final count of stations missing location data: {len(final_missing)}")
-    
-    # Calculate percentage of Simion votes
+    # Calculate percentage of Simion votes for each station
     print("\nCalculating vote percentages...")
     merged_data['total_votes'] = merged_data['votes_simion'] + merged_data['votes_dan']
     merged_data['simion_percentage'] = (merged_data['votes_simion'] / merged_data['total_votes'] * 100).round(2)
     
+    # Calculate UAT-level averages
+    print("Calculating UAT-level averages...")
+    uat_stats = merged_data.groupby(['county', 'uat_name']).agg({
+        'votes_simion': 'sum',
+        'votes_dan': 'sum'
+    }).reset_index()
+    
+    # Calculate UAT average percentage
+    uat_stats['uat_total_votes'] = uat_stats['votes_simion'] + uat_stats['votes_dan']
+    uat_stats['uat_simion_avg_percentage'] = (uat_stats['votes_simion'] / uat_stats['uat_total_votes'] * 100).round(2)
+    
+    # Keep only the columns we need for merging back
+    uat_averages = uat_stats[['county', 'uat_name', 'uat_simion_avg_percentage']]
+    
+    # Merge the UAT averages back to the main dataset
+    merged_data = pd.merge(
+        merged_data,
+        uat_averages,
+        on=['county', 'uat_name'],
+        how='left'
+    )
+    
+    # Calculate the difference between station percentage and UAT average
+    print("Calculating percentage differences from UAT average...")
+    merged_data['simion_vs_uat_diff'] = (merged_data['simion_percentage'] - merged_data['uat_simion_avg_percentage']).round(2)
+    
     # Select and reorder final columns
     result = merged_data[[
         'county', 
+        'uat_name',
         'station_number', 
         'voting_station_name', 
         'latitude', 
         'longitude', 
         'votes_dan', 
         'votes_simion', 
-        'simion_percentage'
+        'simion_percentage',
+        'uat_simion_avg_percentage',
+        'simion_vs_uat_diff'
     ]]
     
     # Save the result
@@ -210,10 +153,16 @@ def merge_voting_data(voting_data_file, station_locations_file, output_file):
     print(f"Total stations processed: {len(result)}")
     print(f"Stations with complete data: {len(result.dropna())}")
     print(f"Stations with missing location data: {len(result[result['latitude'].isna()])}")
+    print(f"Unique UATs processed: {len(result['uat_name'].unique())}")
     
     # Display the first few rows of the result
     print("\nFirst few rows of the result:")
     print(result.head())
+    
+    # Show some UAT-level statistics
+    print("\nSample UAT averages:")
+    sample_uats = result.groupby(['county', 'uat_name']).first()[['uat_simion_avg_percentage']].head(10)
+    print(sample_uats)
     
     print(f"\nData saved to {output_file}")
     return result
