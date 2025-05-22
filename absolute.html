@@ -161,6 +161,14 @@
       function getColor(percentage) {
         percentage = Math.max(0, Math.min(100, percentage));
 
+        // Special cases for extreme values
+        if (percentage < 2.5) {
+          return "#39FF14"; // Neon green
+        }
+        if (percentage > 95) {
+          return "#FF3131"; // Neon red
+        }
+
         let red, green, blue;
 
         if (percentage < 50) {
@@ -475,20 +483,30 @@
         const legend = L.control({ position: "bottomright" });
         legend.onAdd = function () {
           const div = L.DomUtil.create("div", "legend");
-          const grades = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
+          // Updated grades to include thresholds for neon colors
+          const grades = [0, 2.5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95];
 
           div.innerHTML = "<h4>Simion Support %</h4>";
 
-          // Loop through our percentage intervals and generate a label with a colored square for each interval
-          for (let i = 0; i < grades.length; i++) {
+          // Add special indicator for <2.5% (neon green)
+          div.innerHTML +=
+            '<i style="background:' + getColor(1) + '"></i> ' + "&lt;2.5%<br>";
+
+          // Loop through our percentage intervals
+          for (let i = 1; i < grades.length - 1; i++) {
             div.innerHTML +=
               '<i style="background:' +
               getColor(grades[i]) +
               '"></i> ' +
               grades[i] +
-              (grades[i + 1] ? "&ndash;" + grades[i + 1] + "%<br>" : "+%");
+              "&ndash;" +
+              grades[i + 1] +
+              "%<br>";
           }
-          div.style.fontSize = "8px";
+
+          // Add special indicator for >95% (neon red)
+          div.innerHTML +=
+            '<i style="background:' + getColor(96) + '"></i> ' + "&gt;95%";
 
           return div;
         };
